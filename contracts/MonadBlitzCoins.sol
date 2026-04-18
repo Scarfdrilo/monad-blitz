@@ -10,6 +10,10 @@ contract MonadBlitzCoins {
 
     mapping(address => uint256) private balances;
     mapping(address => mapping(address => uint256)) private allowances;
+    mapping(address => uint256) public lastClaim;
+
+    uint256 public constant CLAIM_COOLDOWN = 60; // 60 seconds between claims
+    uint256 public constant MAX_CLAIM = 1000 * 1e18; // max 1000 BLTZ per claim
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -24,10 +28,21 @@ contract MonadBlitzCoins {
         owner = msg.sender;
     }
 
-    function claimReward(address player, uint256 amount) external onlyOwner {
+    /// @notice Players can claim their own rewards (with cooldown)
+    function claimReward(uint256 amount) external {
+        require(amount > 0 && amount <= MAX_CLAIM, "Invalid amount");
+        require(block.timestamp >= lastClaim[msg.sender] + CLAIM_COOLDOWN, "Cooldown active");
+        lastClaim[msg.sender] = block.timestamp;
+        balances[msg.sender] += amount;
+        totalSupply += amount;
+        emit ClaimReward(msg.sender, amount);
+        emit Transfer(address(0), msg.sender, amount);
+    }
+
+    /// @notice Owner can mint to any address
+    function mintTo(address player, uint256 amount) external onlyOwner {
         balances[player] += amount;
         totalSupply += amount;
-        emit ClaimReward(player, amount);
         emit Transfer(address(0), player, amount);
     }
 

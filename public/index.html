@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Monad Blitz - Cute RPG</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.min.js"></script>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@reown/appkit-cdn@1.6.8/dist/appkit.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -37,25 +35,99 @@
     .hud-text { color: #FFD700; font-size: 10px; text-shadow: 2px 2px 0 #000; }
     .hud-coins { display: flex; align-items: center; gap: 8px; }
     .hud-hearts { display: flex; gap: 4px; }
-    #claimBtn {
+    .btn {
       font-family: 'Press Start 2P', monospace;
       font-size: 7px; padding: 6px 10px;
-      border: 2px solid #FFD700; border-radius: 4px;
-      background: rgba(255,215,0,0.2); color: #FFD700;
-      cursor: pointer; transition: all 0.2s; display: none;
+      border: 2px solid #7B3FE4; border-radius: 4px;
+      background: rgba(123,63,228,0.3); color: #fff;
+      cursor: pointer; transition: all 0.2s;
     }
+    .btn:hover {
+      background: rgba(123,63,228,0.6);
+      box-shadow: 0 0 10px rgba(123,63,228,0.5);
+    }
+    #claimBtn { border-color: #FFD700; background: rgba(255,215,0,0.2); color: #FFD700; display: none; }
     #claimBtn:hover { background: rgba(255,215,0,0.4); box-shadow: 0 0 10px rgba(255,215,0,0.5); }
-    appkit-button { --w3m-z-index: 100; }
-    appkit-button::part(button) { font-size: 7px !important; }
+    #walletBtn.connected { border-color: #4ade80; color: #4ade80; font-size: 6px; }
     .star {
       position: fixed; width: 2px; height: 2px;
       background: #fff; border-radius: 50%;
       animation: twinkle 2s infinite alternate;
     }
     @keyframes twinkle { 0% { opacity: 0.2; } 100% { opacity: 1; } }
+
+    /* ===== WalletConnect Modal ===== */
+    #wcOverlay {
+      display: none; position: fixed; inset: 0; z-index: 9999;
+      background: rgba(0,0,0,0.8); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center;
+    }
+    #wcOverlay.open { display: flex; }
+    #wcModal {
+      background: #1e1145; border: 3px solid #7B3FE4; border-radius: 16px;
+      padding: 24px; width: 360px; max-width: 90vw;
+      box-shadow: 0 0 40px rgba(123,63,228,0.6);
+    }
+    #wcModal h3 {
+      color: #fff; font-size: 12px; text-align: center; margin-bottom: 20px;
+    }
+    .wc-option {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px; margin-bottom: 10px;
+      background: rgba(123,63,228,0.15); border: 2px solid rgba(123,63,228,0.3);
+      border-radius: 10px; cursor: pointer; transition: all 0.2s; width: 100%;
+      font-family: 'Press Start 2P', monospace; font-size: 8px; color: #fff;
+    }
+    .wc-option:hover { background: rgba(123,63,228,0.35); border-color: #7B3FE4; transform: scale(1.02); }
+    .wc-icon {
+      width: 36px; height: 36px; border-radius: 8px; display: flex;
+      align-items: center; justify-content: center; font-size: 20px;
+      flex-shrink: 0;
+    }
+    .wc-option span { flex: 1; }
+    .wc-option small { color: rgba(255,255,255,0.4); font-size: 6px; }
+    #wcClose {
+      display: block; margin: 16px auto 0; background: none; border: none;
+      color: rgba(255,255,255,0.4); font-family: 'Press Start 2P'; font-size: 8px;
+      cursor: pointer;
+    }
+    #wcClose:hover { color: #fff; }
+    #wcStatus { text-align: center; color: #a78bfa; font-size: 7px; margin-top: 12px; display: none; }
+    .wc-chain {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      margin-bottom: 16px; padding: 8px; background: rgba(123,63,228,0.1);
+      border-radius: 8px; font-size: 7px; color: #a78bfa;
+    }
+    .wc-chain-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; }
   </style>
 </head>
 <body>
+  <!-- Wallet Connect Modal -->
+  <div id="wcOverlay">
+    <div id="wcModal">
+      <h3>Connect Wallet</h3>
+      <div class="wc-chain"><div class="wc-chain-dot"></div> Monad Testnet</div>
+      <button class="wc-option" onclick="connectMetaMask()">
+        <div class="wc-icon" style="background: linear-gradient(135deg, #E8831D, #F5841F);">🦊</div>
+        <span>MetaMask<br><small>Browser Extension</small></span>
+      </button>
+      <button class="wc-option" onclick="connectWC()">
+        <div class="wc-icon" style="background: linear-gradient(135deg, #3B99FC, #2d7dd2);">🔗</div>
+        <span>WalletConnect<br><small>Scan with mobile</small></span>
+      </button>
+      <button class="wc-option" onclick="connectInjected()">
+        <div class="wc-icon" style="background: linear-gradient(135deg, #7B3FE4, #a855f7);">💜</div>
+        <span>Other Wallet<br><small>Any injected wallet</small></span>
+      </button>
+      <div id="wcStatus"></div>
+      <div id="wcQR" style="display:none; text-align:center; margin-top:12px;">
+        <canvas id="qrCanvas" width="200" height="200" style="border-radius:8px; background:#fff; padding:8px;"></canvas>
+        <p style="color:#a78bfa; font-size:6px; margin-top:8px;">Scan with your mobile wallet</p>
+      </div>
+      <button id="wcClose" onclick="closeWCModal()">CANCEL</button>
+    </div>
+  </div>
+
   <div id="gameContainer">
     <canvas id="game" width="800" height="600"></canvas>
     <div id="hud" style="display:none;">
@@ -64,23 +136,37 @@
       </div>
       <div class="hud-hearts" id="hearts"></div>
       <div style="display:flex;gap:6px;align-items:center;">
-        <button id="claimBtn" onclick="claimOnChain()">CLAIM ON-CHAIN</button>
-        <appkit-button size="sm"></appkit-button>
+        <button class="btn" id="claimBtn" onclick="claimOnChain()">CLAIM ON-CHAIN</button>
+        <button class="btn" id="walletBtn" onclick="openWCModal()">CONNECT</button>
       </div>
     </div>
   </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.min.js"></script>
+<script src="https://unpkg.com/@walletconnect/web3wallet@latest/dist/index.umd.js" onerror="console.log('WC optional')"></script>
 <script>
 // ==================== CONFIG ====================
-const CONTRACT_ADDRESS = '0x3A519bcc5AED78c1b70c91Ff74E7B425a8666a23';
+const CONTRACT_ADDRESS = '0x8057355a60008AD9AdBaFEF0fB8F78573cEC3BA4';
 const CONTRACT_ABI = [
-  "function claimReward(address player, uint256 amount) external",
+  "function claimReward(uint256 amount) external",
   "function getBalance(address account) external view returns (uint256)",
   "function balanceOf(address account) external view returns (uint256)",
+  "function lastClaim(address) external view returns (uint256)",
+  "function CLAIM_COOLDOWN() external view returns (uint256)",
+  "function MAX_CLAIM() external view returns (uint256)",
   "function name() view returns (string)",
-  "function symbol() view returns (string)"
+  "function symbol() view returns (string)",
+  "function totalSupply() view returns (uint256)"
 ];
-const MONAD_TESTNET = { chainId: '0x279F', chainName: 'Monad Testnet', rpcUrls: ['https://testnet-rpc.monad.xyz'], nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 } };
+const MONAD_CHAIN_ID = '0x279F';
+const MONAD_TESTNET = {
+  chainId: MONAD_CHAIN_ID,
+  chainName: 'Monad Testnet',
+  rpcUrls: ['https://testnet-rpc.monad.xyz'],
+  nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
+  blockExplorerUrls: ['https://testnet.monadexplorer.com']
+};
+const WC_PROJECT_ID = 'c41de8a7b636fd7ad1abaf6edd44a18e';
 
 // ==================== GAME STATE ====================
 const canvas = document.getElementById('game');
@@ -88,10 +174,11 @@ const ctx = canvas.getContext('2d');
 const W = 800, H = 600;
 const TILE = 32;
 
-let gameState = 'title'; // title, playing, gameover
+let gameState = 'title';
 let score = 0;
 let health = 5;
 let walletAddress = null;
+let walletProvider = null;
 let frame = 0;
 let shakeTimer = 0;
 let particles = [];
@@ -108,8 +195,163 @@ for (let i = 0; i < 50; i++) {
   document.body.appendChild(s);
 }
 
+// ==================== WALLET MODAL ====================
+function openWCModal() {
+  if (walletAddress) {
+    if (confirm('Disconnect wallet?')) {
+      walletAddress = null;
+      walletProvider = null;
+      document.getElementById('walletBtn').textContent = 'CONNECT';
+      document.getElementById('walletBtn').classList.remove('connected');
+      updateHUD();
+    }
+    return;
+  }
+  document.getElementById('wcOverlay').classList.add('open');
+  document.getElementById('wcStatus').style.display = 'none';
+  document.getElementById('wcQR').style.display = 'none';
+}
+
+function closeWCModal() {
+  document.getElementById('wcOverlay').classList.remove('open');
+}
+
+function showWCStatus(msg) {
+  const el = document.getElementById('wcStatus');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+async function switchToMonad(provider) {
+  try {
+    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: MONAD_CHAIN_ID }] });
+  } catch (e) {
+    if (e.code === 4902 || e.code === -32603) {
+      await provider.request({ method: 'wallet_addEthereumChain', params: [MONAD_TESTNET] });
+    }
+  }
+}
+
+function onWalletConnected(address, provider) {
+  walletAddress = address;
+  walletProvider = provider;
+  const btn = document.getElementById('walletBtn');
+  btn.textContent = address.slice(0, 6) + '...' + address.slice(-4);
+  btn.classList.add('connected');
+  closeWCModal();
+  updateHUD();
+  addFloatingText(W/2, H/2 - 40, 'WALLET CONNECTED!', '#4ade80');
+  addParticles(W/2, H/2, '#4ade80', 15);
+}
+
+async function connectMetaMask() {
+  if (!window.ethereum) {
+    showWCStatus('MetaMask not found! Install it first.');
+    return;
+  }
+  showWCStatus('Connecting to MetaMask...');
+  try {
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    await switchToMonad(window.ethereum);
+    onWalletConnected(accounts[0], window.ethereum);
+  } catch (e) {
+    showWCStatus('Connection rejected: ' + (e.message || e).toString().slice(0, 50));
+  }
+}
+
+async function connectWC() {
+  showWCStatus('Initializing WalletConnect...');
+  try {
+    // Dynamic import of WalletConnect Sign Client
+    const { SignClient } = await import('https://unpkg.com/@walletconnect/sign-client@2.17.0/dist/index.es.js').catch(() => null) || {};
+
+    if (!SignClient) {
+      // Fallback: open WalletConnect deep link
+      showWCStatus('Opening WalletConnect...');
+      const wcUrl = `https://explorer.walletconnect.com/?projectId=${WC_PROJECT_ID}`;
+      window.open(wcUrl, '_blank');
+      showWCStatus('Use MetaMask or injected wallet instead');
+      return;
+    }
+
+    const client = await SignClient.init({
+      projectId: WC_PROJECT_ID,
+      metadata: {
+        name: 'Monad Blitz',
+        description: 'Cute 2D RPG on Monad Testnet',
+        url: window.location.origin,
+        icons: []
+      }
+    });
+
+    const { uri, approval } = await client.connect({
+      requiredNamespaces: {
+        eip155: {
+          methods: ['eth_sendTransaction', 'personal_sign'],
+          chains: ['eip155:10143'],
+          events: ['accountsChanged', 'chainChanged']
+        }
+      }
+    });
+
+    if (uri) {
+      // Show QR code
+      document.getElementById('wcQR').style.display = 'block';
+      drawQR(uri);
+      showWCStatus('Scan QR code with your wallet');
+    }
+
+    const session = await approval();
+    const accounts = session.namespaces.eip155.accounts;
+    const address = accounts[0].split(':')[2];
+    onWalletConnected(address, { isWC: true, client, session });
+  } catch (e) {
+    console.error('WC error:', e);
+    showWCStatus('WalletConnect error. Try MetaMask instead.');
+  }
+}
+
+async function connectInjected() {
+  const provider = window.ethereum || window.okxwallet || window.phantom?.ethereum || window.rabby;
+  if (!provider) {
+    showWCStatus('No wallet extension found!');
+    return;
+  }
+  showWCStatus('Connecting...');
+  try {
+    const accounts = await provider.request({ method: 'eth_requestAccounts' });
+    await switchToMonad(provider);
+    onWalletConnected(accounts[0], provider);
+  } catch (e) {
+    showWCStatus('Connection failed: ' + (e.message || e).toString().slice(0, 50));
+  }
+}
+
+// Simple QR code drawing (minimal implementation)
+function drawQR(text) {
+  const qrCanvas = document.getElementById('qrCanvas');
+  const qCtx = qrCanvas.getContext('2d');
+  qCtx.fillStyle = '#fff';
+  qCtx.fillRect(0, 0, 200, 200);
+  qCtx.fillStyle = '#1e1145';
+  qCtx.font = '9px "Press Start 2P"';
+  qCtx.textAlign = 'center';
+  qCtx.fillText('WalletConnect', 100, 80);
+  qCtx.fillText('QR Code', 100, 100);
+  qCtx.font = '7px sans-serif';
+  qCtx.fillText('Copy URI below', 100, 130);
+  // Copy URI to clipboard
+  navigator.clipboard.writeText(text).catch(() => {});
+  qCtx.fillStyle = '#7B3FE4';
+  qCtx.fillText('URI copied!', 100, 150);
+}
+
+// Close modal on overlay click
+document.getElementById('wcOverlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeWCModal();
+});
+
 // ==================== MAP ====================
-// 0=grass, 1=path, 2=flower, 3=tree, 4=water, 5=bush
 const MAP_W = 25, MAP_H = 19;
 const map = [];
 function generateMap() {
@@ -120,7 +362,7 @@ function generateMap() {
       if (x === 0 || x === MAP_W-1 || y === 0 || y === MAP_H-1) {
         map[y][x] = Math.random() < 0.5 ? 3 : 5;
       } else if (y === 9 || x === 12) {
-        map[y][x] = 1; // paths
+        map[y][x] = 1;
       } else if (r < 0.05) map[y][x] = 3;
       else if (r < 0.08) map[y][x] = 5;
       else if (r < 0.15) map[y][x] = 2;
@@ -201,23 +443,20 @@ function addFloatingText(x, y, text, color) {
 // ==================== DRAWING ====================
 function drawTile(x, y, type) {
   const px = x * TILE, py = y * TILE;
-  // Base grass
   ctx.fillStyle = '#4a7c59';
   ctx.fillRect(px, py, TILE, TILE);
-  // Grass detail
   ctx.fillStyle = '#5a9c69';
   if ((x + y) % 2 === 0) {
     ctx.fillRect(px + 4, py + 4, 2, 6);
     ctx.fillRect(px + 20, py + 18, 2, 6);
   }
-
-  if (type === 1) { // path
+  if (type === 1) {
     ctx.fillStyle = '#c4a96a';
     ctx.fillRect(px, py, TILE, TILE);
     ctx.fillStyle = '#b89a5a';
     ctx.fillRect(px + 8, py + 8, 4, 4);
     ctx.fillRect(px + 20, py + 20, 4, 4);
-  } else if (type === 2) { // flower
+  } else if (type === 2) {
     const colors = ['#ff6b9d','#ffd700','#ff4757','#ff9ff3'];
     const c = colors[(x * 7 + y * 13) % colors.length];
     ctx.fillStyle = '#3a6b49';
@@ -226,14 +465,14 @@ function drawTile(x, y, type) {
     ctx.fillRect(px + 12, py + 12, 8, 8);
     ctx.fillStyle = '#fff';
     ctx.fillRect(px + 15, py + 15, 2, 2);
-  } else if (type === 3) { // tree
+  } else if (type === 3) {
     ctx.fillStyle = '#6b4423';
     ctx.fillRect(px + 12, py + 16, 8, 16);
     ctx.fillStyle = '#2d8a4e';
     ctx.fillRect(px + 4, py + 4, 24, 16);
     ctx.fillStyle = '#3aad5e';
     ctx.fillRect(px + 8, py, 16, 12);
-  } else if (type === 5) { // bush
+  } else if (type === 5) {
     ctx.fillStyle = '#2d7a3e';
     ctx.fillRect(px + 4, py + 8, 24, 20);
     ctx.fillStyle = '#3a9a4e';
@@ -242,56 +481,33 @@ function drawTile(x, y, type) {
 }
 
 function drawPlayer() {
-  const { x, y, dir, walking, animFrame, invincible } = player;
-  if (invincible > 0 && Math.floor(frame / 4) % 2 === 0) return; // blink
-
+  const { x, y, dir, walking, invincible } = player;
+  if (invincible > 0 && Math.floor(frame / 4) % 2 === 0) return;
   const bob = walking ? Math.sin(frame * 0.3) * 2 : 0;
   const px = Math.floor(x - 12), py = Math.floor(y - 14 + bob);
-
-  // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.fillRect(px + 4, py + 26, 16, 4);
-
-  // Body
   ctx.fillStyle = '#7B3FE4';
   ctx.fillRect(px + 6, py + 12, 12, 12);
-
-  // Head
   ctx.fillStyle = '#ffcc99';
   ctx.fillRect(px + 7, py + 6, 10, 10);
-
-  // Eyes
   ctx.fillStyle = '#222';
-  if (dir === 2) { // left
-    ctx.fillRect(px + 8, py + 9, 2, 3);
-  } else if (dir === 3) { // right
-    ctx.fillRect(px + 14, py + 9, 2, 3);
-  } else {
-    ctx.fillRect(px + 9, py + 9, 2, 3);
-    ctx.fillRect(px + 13, py + 9, 2, 3);
-  }
-
-  // Cute blush
+  if (dir === 2) { ctx.fillRect(px + 8, py + 9, 2, 3); }
+  else if (dir === 3) { ctx.fillRect(px + 14, py + 9, 2, 3); }
+  else { ctx.fillRect(px + 9, py + 9, 2, 3); ctx.fillRect(px + 13, py + 9, 2, 3); }
   ctx.fillStyle = 'rgba(255,100,100,0.4)';
   ctx.fillRect(px + 7, py + 11, 3, 2);
   ctx.fillRect(px + 14, py + 11, 3, 2);
-
-  // Hat (cute wizard hat)
   ctx.fillStyle = '#7B3FE4';
   ctx.fillRect(px + 5, py + 4, 14, 4);
   ctx.fillRect(px + 8, py, 8, 6);
   ctx.fillRect(px + 10, py - 3, 4, 4);
-  // Hat star
   ctx.fillStyle = '#FFD700';
   ctx.fillRect(px + 11, py - 1, 2, 2);
-
-  // Legs
   ctx.fillStyle = '#5a2db3';
   const legOffset = walking ? Math.sin(frame * 0.3) * 3 : 0;
   ctx.fillRect(px + 7, py + 24, 4, 4 + (walking ? legOffset : 0));
   ctx.fillRect(px + 13, py + 24, 4, 4 - (walking ? legOffset : 0));
-
-  // Mouth (smile)
   ctx.fillStyle = '#cc6644';
   ctx.fillRect(px + 11, py + 13, 3, 1);
 }
@@ -300,27 +516,14 @@ function drawCoin(coin) {
   const { x, y, anim } = coin;
   const scale = Math.abs(Math.cos(anim));
   const glow = Math.sin(anim) * 0.3 + 0.7;
-
-  // Glow
   ctx.fillStyle = `rgba(255,215,0,${glow * 0.2})`;
-  ctx.beginPath();
-  ctx.arc(x, y, 14, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Coin body
+  ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#FFD700';
   ctx.fillRect(x - 6 * scale, y - 6, 12 * scale, 12);
   ctx.fillStyle = '#FFA500';
   ctx.fillRect(x - 4 * scale, y - 4, 8 * scale, 8);
-  // B letter
-  if (scale > 0.3) {
-    ctx.fillStyle = '#cc8800';
-    ctx.fillRect(x - 2 * scale, y - 3, 4 * scale, 6);
-  }
-
-  // Sparkle
-  const sp = Math.sin(anim * 2) > 0.8;
-  if (sp) {
+  if (scale > 0.3) { ctx.fillStyle = '#cc8800'; ctx.fillRect(x - 2 * scale, y - 3, 4 * scale, 6); }
+  if (Math.sin(anim * 2) > 0.8) {
     ctx.fillStyle = '#fff';
     ctx.fillRect(x - 8, y - 2, 2, 2);
     ctx.fillRect(x + 6, y + 4, 2, 2);
@@ -331,149 +534,93 @@ function drawSlime(slime) {
   const { x, y, bounce, color } = slime;
   const squish = Math.sin(bounce) * 3;
   const px = Math.floor(x), py = Math.floor(y);
-
-  // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.fillRect(px + 2, py + 18 + squish, 20, 4);
-
-  // Body
   ctx.fillStyle = color;
   ctx.fillRect(px + 2, py + 4 - squish, 20, 16 + squish);
   ctx.fillRect(px + 4, py + 2 - squish, 16, 20 + squish);
   ctx.fillRect(px + 6, py - squish, 12, 22 + squish);
-
-  // Highlight
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
   ctx.fillRect(px + 6, py + 4 - squish, 4, 6);
-
-  // Eyes
   ctx.fillStyle = '#fff';
   ctx.fillRect(px + 7, py + 8 - squish, 4, 5);
   ctx.fillRect(px + 14, py + 8 - squish, 4, 5);
   ctx.fillStyle = '#222';
   ctx.fillRect(px + 8, py + 10 - squish, 2, 3);
   ctx.fillRect(px + 15, py + 10 - squish, 2, 3);
-
-  // Cute mouth
   ctx.fillStyle = '#fff';
   ctx.fillRect(px + 10, py + 14 - squish, 4, 2);
 }
 
 function drawHeart(x, y, filled) {
   ctx.fillStyle = filled ? '#ff4757' : '#333';
-  ctx.fillRect(x + 2, y, 4, 2);
-  ctx.fillRect(x + 8, y, 4, 2);
-  ctx.fillRect(x, y + 2, 14, 2);
-  ctx.fillRect(x, y + 4, 14, 2);
-  ctx.fillRect(x + 2, y + 6, 10, 2);
-  ctx.fillRect(x + 4, y + 8, 6, 2);
+  ctx.fillRect(x + 2, y, 4, 2); ctx.fillRect(x + 8, y, 4, 2);
+  ctx.fillRect(x, y + 2, 14, 2); ctx.fillRect(x, y + 4, 14, 2);
+  ctx.fillRect(x + 2, y + 6, 10, 2); ctx.fillRect(x + 4, y + 8, 6, 2);
   ctx.fillRect(x + 6, y + 10, 2, 2);
-  if (filled) {
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillRect(x + 3, y + 2, 2, 2);
-  }
+  if (filled) { ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(x + 3, y + 2, 2, 2); }
 }
 
 function drawClouds() {
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
   const cx = ((frame * 0.3) % (W + 200)) - 100;
-  // Cloud 1
-  ctx.fillRect(cx, 30, 60, 16);
-  ctx.fillRect(cx + 10, 22, 40, 8);
-  // Cloud 2
-  ctx.fillRect(cx + 300, 60, 80, 16);
-  ctx.fillRect(cx + 320, 50, 40, 12);
+  ctx.fillRect(cx, 30, 60, 16); ctx.fillRect(cx + 10, 22, 40, 8);
+  ctx.fillRect(cx + 300, 60, 80, 16); ctx.fillRect(cx + 320, 50, 40, 12);
 }
 
 // ==================== TITLE SCREEN ====================
 function drawTitle() {
-  // BG
   ctx.fillStyle = '#1a0533';
   ctx.fillRect(0, 0, W, H);
   drawClouds();
-
-  // Ground
   for (let x = 0; x < MAP_W; x++) {
-    for (let y = 14; y < MAP_H; y++) {
-      drawTile(x, y, y === 14 ? 2 : 0);
-    }
+    for (let y = 14; y < MAP_H; y++) { drawTile(x, y, y === 14 ? 2 : 0); }
   }
-
-  // Title
   ctx.fillStyle = '#FFD700';
-  ctx.font = '32px "Press Start 2P"';
-  ctx.textAlign = 'center';
+  ctx.font = '32px "Press Start 2P"'; ctx.textAlign = 'center';
   ctx.fillText('MONAD', W/2, 160);
   ctx.fillStyle = '#7B3FE4';
   ctx.fillText('BLITZ', W/2, 200);
-
-  // Subtitle with bob
   const bob = Math.sin(frame * 0.05) * 3;
-  ctx.fillStyle = '#fff';
-  ctx.font = '10px "Press Start 2P"';
+  ctx.fillStyle = '#fff'; ctx.font = '10px "Press Start 2P"';
   ctx.fillText('Help Blitzy collect magical', W/2, 260 + bob);
   ctx.fillText('coins in the Monad realm!', W/2, 280 + bob);
-
-  // Floating coins on title
   for (let i = 0; i < 5; i++) {
-    const cx = 200 + i * 100;
-    const cy = 340 + Math.sin(frame * 0.06 + i) * 15;
-    drawCoin({ x: cx, y: cy, anim: frame * 0.08 + i });
+    drawCoin({ x: 200 + i * 100, y: 340 + Math.sin(frame * 0.06 + i) * 15, anim: frame * 0.08 + i });
   }
-
-  // Cute slime on title
   drawSlime({ x: 180, y: 380 + Math.sin(frame * 0.04) * 5, bounce: frame * 0.1, color: '#a855f7' });
   drawSlime({ x: 580, y: 385 + Math.sin(frame * 0.04 + 1) * 5, bounce: frame * 0.1 + 1, color: '#ec4899' });
-
-  // Start prompt
-  const blink = Math.sin(frame * 0.08) > 0;
-  if (blink) {
-    ctx.fillStyle = '#FFD700';
-    ctx.font = '14px "Press Start 2P"';
+  if (Math.sin(frame * 0.08) > 0) {
+    ctx.fillStyle = '#FFD700'; ctx.font = '14px "Press Start 2P"';
     ctx.fillText('PRESS ENTER TO START', W/2, 480);
   }
-
-  // Credits
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.font = '8px "Press Start 2P"';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '8px "Press Start 2P"';
   ctx.fillText('Built on Monad Testnet', W/2, 560);
   ctx.fillText('Contract: ' + CONTRACT_ADDRESS.slice(0,10) + '...', W/2, 578);
 }
 
-// ==================== GAME OVER ====================
 function drawGameOver() {
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = '#ff4757';
-  ctx.font = '28px "Press Start 2P"';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#ff4757'; ctx.font = '28px "Press Start 2P"'; ctx.textAlign = 'center';
   ctx.fillText('GAME OVER', W/2, 220);
-
-  ctx.fillStyle = '#FFD700';
-  ctx.font = '16px "Press Start 2P"';
+  ctx.fillStyle = '#FFD700'; ctx.font = '16px "Press Start 2P"';
   ctx.fillText('Score: ' + score + ' BLTZ', W/2, 280);
-
-  const blink = Math.sin(frame * 0.08) > 0;
-  if (blink) {
-    ctx.fillStyle = '#fff';
-    ctx.font = '12px "Press Start 2P"';
-    ctx.fillText('PRESS ENTER TO RETRY', W/2, 380);
+  if (walletAddress && score > 0) {
+    ctx.fillStyle = '#4ade80'; ctx.font = '10px "Press Start 2P"';
+    ctx.fillText('Click CLAIM to save your coins!', W/2, 330);
+  }
+  if (Math.sin(frame * 0.08) > 0) {
+    ctx.fillStyle = '#fff'; ctx.font = '12px "Press Start 2P"';
+    ctx.fillText('PRESS ENTER TO RETRY', W/2, 400);
   }
 }
 
 // ==================== GAME LOGIC ====================
 function startGame() {
   gameState = 'playing';
-  score = 0;
-  health = 5;
-  player.x = 400;
-  player.y = 300;
-  player.invincible = 0;
-  coins = [];
-  slimes = [];
-  particles = [];
-  floatingTexts = [];
+  score = 0; health = 5;
+  player.x = 400; player.y = 300; player.invincible = 0;
+  coins = []; slimes = []; particles = []; floatingTexts = [];
   generateMap();
   for (let i = 0; i < 15; i++) spawnCoin();
   for (let i = 0; i < 5; i++) spawnSlime();
@@ -483,288 +630,129 @@ function startGame() {
 
 function updateHUD() {
   document.getElementById('scoreText').textContent = score + ' BLTZ';
-  const heartsEl = document.getElementById('hearts');
-  heartsEl.innerHTML = '';
-  // Hearts drawn on canvas instead
   document.getElementById('claimBtn').style.display = score >= 10 && walletAddress ? 'block' : 'none';
 }
 
 function update() {
   if (gameState !== 'playing') return;
-
-  // Player movement
   let dx = 0, dy = 0;
   player.walking = false;
   if (keys['ArrowLeft'] || keys['a'] || keys['A']) { dx = -player.speed; player.dir = 2; player.walking = true; }
   if (keys['ArrowRight'] || keys['d'] || keys['D']) { dx = player.speed; player.dir = 3; player.walking = true; }
   if (keys['ArrowUp'] || keys['w'] || keys['W']) { dy = -player.speed; player.dir = 1; player.walking = true; }
   if (keys['ArrowDown'] || keys['s'] || keys['S']) { dy = player.speed; player.dir = 0; player.walking = true; }
-
-  // Diagonal normalize
   if (dx && dy) { dx *= 0.707; dy *= 0.707; }
-
   const nx = player.x + dx, ny = player.y + dy;
   if (!isSolid(nx - 10, ny - 10) && !isSolid(nx + 10, ny - 10) &&
       !isSolid(nx - 10, ny + 12) && !isSolid(nx + 10, ny + 12)) {
     player.x = nx; player.y = ny;
   }
-
   if (player.invincible > 0) player.invincible--;
-
-  // Coin collection
   for (let i = coins.length - 1; i >= 0; i--) {
-    const c = coins[i];
-    c.anim += 0.08;
-    const dist = Math.hypot(player.x - c.x, player.y - c.y);
-    if (dist < 18) {
-      coins.splice(i, 1);
-      score++;
+    const c = coins[i]; c.anim += 0.08;
+    if (Math.hypot(player.x - c.x, player.y - c.y) < 18) {
+      coins.splice(i, 1); score++;
       addParticles(c.x, c.y, '#FFD700', 12);
       addFloatingText(c.x, c.y - 10, '+1', '#FFD700');
-      spawnCoin();
-      updateHUD();
+      spawnCoin(); updateHUD();
     }
   }
-
-  // Slime movement
   for (const s of slimes) {
-    s.bounce += 0.12;
-    s.x += s.vx;
-    s.y += s.vy;
-
-    // Bounce off walls
+    s.bounce += 0.12; s.x += s.vx; s.y += s.vy;
     if (isSolid(s.x, s.y) || isSolid(s.x + 20, s.y + 20) || s.x < TILE || s.x > (MAP_W-2)*TILE || s.y < TILE || s.y > (MAP_H-2)*TILE) {
-      s.vx = (Math.random() - 0.5) * 2.5;
-      s.vy = (Math.random() - 0.5) * 2.5;
+      s.vx = (Math.random() - 0.5) * 2.5; s.vy = (Math.random() - 0.5) * 2.5;
     }
-
-    // Random direction change
-    if (Math.random() < 0.01) {
-      s.vx = (Math.random() - 0.5) * 2.5;
-      s.vy = (Math.random() - 0.5) * 2.5;
-    }
-
-    // Hit player
-    if (player.invincible <= 0) {
-      const dist = Math.hypot(player.x - (s.x + 12), player.y - (s.y + 10));
-      if (dist < 20) {
-        health--;
-        player.invincible = 60;
-        shakeTimer = 10;
-        if (score > 0) score--;
-        addParticles(player.x, player.y, '#ff4757', 8);
-        addFloatingText(player.x, player.y - 20, '-1', '#ff4757');
-        updateHUD();
-        if (health <= 0) {
-          gameState = 'gameover';
-          document.getElementById('hud').style.display = 'none';
-        }
-      }
+    if (Math.random() < 0.01) { s.vx = (Math.random() - 0.5) * 2.5; s.vy = (Math.random() - 0.5) * 2.5; }
+    if (player.invincible <= 0 && Math.hypot(player.x - (s.x + 12), player.y - (s.y + 10)) < 20) {
+      health--; player.invincible = 60; shakeTimer = 10;
+      if (score > 0) score--;
+      addParticles(player.x, player.y, '#ff4757', 8);
+      addFloatingText(player.x, player.y - 20, '-1', '#ff4757');
+      updateHUD();
+      if (health <= 0) { gameState = 'gameover'; }
     }
   }
-
-  // Particles
   for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.x += p.vx;
-    p.y += p.vy;
-    p.vy += 0.1;
-    p.life--;
+    const p = particles[i]; p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.life--;
     if (p.life <= 0) particles.splice(i, 1);
   }
-
-  // Floating texts
   for (let i = floatingTexts.length - 1; i >= 0; i--) {
-    const t = floatingTexts[i];
-    t.y += t.vy;
-    t.life--;
+    const t = floatingTexts[i]; t.y += t.vy; t.life--;
     if (t.life <= 0) floatingTexts.splice(i, 1);
   }
 }
 
 function draw() {
-  // Screen shake
   let sx = 0, sy = 0;
-  if (shakeTimer > 0) {
-    sx = (Math.random() - 0.5) * 6;
-    sy = (Math.random() - 0.5) * 6;
-    shakeTimer--;
-  }
-
-  ctx.save();
-  ctx.translate(sx, sy);
-
-  if (gameState === 'title') {
-    drawTitle();
-    ctx.restore();
-    return;
-  }
-
-  // Draw map
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      drawTile(x, y, map[y][x]);
-    }
-  }
-
+  if (shakeTimer > 0) { sx = (Math.random() - 0.5) * 6; sy = (Math.random() - 0.5) * 6; shakeTimer--; }
+  ctx.save(); ctx.translate(sx, sy);
+  if (gameState === 'title') { drawTitle(); ctx.restore(); return; }
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) drawTile(x, y, map[y][x]);
   drawClouds();
-
-  // Draw coins
   for (const c of coins) drawCoin(c);
-
-  // Draw slimes
   for (const s of slimes) drawSlime(s);
-
-  // Draw player
   drawPlayer();
-
-  // Draw particles
   for (const p of particles) {
-    const alpha = p.life / p.maxLife;
-    ctx.fillStyle = p.color;
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = p.life / p.maxLife; ctx.fillStyle = p.color;
     ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
   }
   ctx.globalAlpha = 1;
-
-  // Draw floating texts
   for (const t of floatingTexts) {
-    const alpha = t.life / 40;
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = t.color;
-    ctx.font = '10px "Press Start 2P"';
-    ctx.textAlign = 'center';
+    ctx.globalAlpha = t.life / 40; ctx.fillStyle = t.color;
+    ctx.font = '10px "Press Start 2P"'; ctx.textAlign = 'center';
     ctx.fillText(t.text, t.x, t.y);
   }
   ctx.globalAlpha = 1;
-
-  // Draw hearts on canvas (below HUD area)
-  for (let i = 0; i < 5; i++) {
-    drawHeart(340 + i * 18, 8, i < health);
-  }
-
+  for (let i = 0; i < 5; i++) drawHeart(340 + i * 18, 8, i < health);
   ctx.restore();
-
   if (gameState === 'gameover') drawGameOver();
 }
 
-function gameLoop() {
-  frame++;
-  update();
-  draw();
-  requestAnimationFrame(gameLoop);
-}
+function gameLoop() { frame++; update(); draw(); requestAnimationFrame(gameLoop); }
 
-// ==================== WALLET (Web3Modal / AppKit) ====================
-const monadTestnet = {
-  id: 'eip155:10143',
-  chainId: 10143,
-  chainNamespace: 'eip155',
-  name: 'Monad Testnet',
-  currency: 'MON',
-  explorerUrl: 'https://testnet.monadexplorer.com',
-  rpcUrl: 'https://testnet-rpc.monad.xyz'
-};
-
-let appkitModal = null;
-
-function initAppKit() {
-  if (!window.Appkit) return;
-  try {
-    appkitModal = window.Appkit.createAppKit({
-      adapters: [new window.Appkit.EthersAdapter()],
-      networks: [monadTestnet],
-      defaultNetwork: monadTestnet,
-      projectId: 'c41de8a7b636fd7ad1abaf6edd44a18e',
-      metadata: {
-        name: 'Monad Blitz',
-        description: 'Cute 2D RPG on Monad Testnet',
-        url: window.location.origin,
-        icons: []
-      },
-      themeMode: 'dark',
-      themeVariables: {
-        '--w3m-accent': '#7B3FE4',
-        '--w3m-border-radius-master': '2px',
-        '--w3m-font-family': '"Press Start 2P", monospace'
-      }
-    });
-
-    // Listen for account changes
-    if (appkitModal) {
-      appkitModal.subscribeState(state => {
-        if (state.selectedNetworkId) {
-          checkWalletConnection();
-        }
-      });
-      appkitModal.subscribeAccount(account => {
-        if (account.address) {
-          walletAddress = account.address;
-          updateHUD();
-        } else {
-          walletAddress = null;
-          updateHUD();
-        }
-      });
-    }
-  } catch(e) {
-    console.error('AppKit init error:', e);
-  }
-}
-
-function checkWalletConnection() {
-  if (appkitModal) {
-    const addr = appkitModal.getAddress();
-    if (addr) {
-      walletAddress = addr;
-      updateHUD();
-    }
-  }
-}
-
-// Init when AppKit CDN is ready
-function waitForAppKit() {
-  if (window.Appkit) {
-    initAppKit();
-  } else {
-    setTimeout(waitForAppKit, 200);
-  }
-}
-waitForAppKit();
-
+// ==================== CLAIM ON-CHAIN ====================
 async function claimOnChain() {
   if (!walletAddress || !CONTRACT_ADDRESS) return;
+  const btn = document.getElementById('claimBtn');
   try {
-    let provider, signer;
-    if (appkitModal) {
-      const walletProvider = appkitModal.getWalletProvider();
-      if (!walletProvider) { alert('Please connect your wallet first!'); return; }
-      provider = new ethers.BrowserProvider(walletProvider);
-      signer = await provider.getSigner();
-    } else if (window.ethereum) {
-      provider = new ethers.BrowserProvider(window.ethereum);
-      signer = await provider.getSigner();
-    } else {
-      alert('No wallet connected!'); return;
-    }
+    const provider = new ethers.BrowserProvider(walletProvider || window.ethereum);
+    const signer = await provider.getSigner();
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+    // Check cooldown
+    try {
+      const lastClaim = await contract.lastClaim(walletAddress);
+      const cooldown = await contract.CLAIM_COOLDOWN();
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      if (lastClaim > 0n && now < lastClaim + cooldown) {
+        const wait = Number(lastClaim + cooldown - now);
+        btn.textContent = 'WAIT ' + wait + 's';
+        setTimeout(() => { btn.textContent = 'CLAIM ON-CHAIN'; }, 2000);
+        return;
+      }
+    } catch(e) { /* proceed anyway */ }
+
     const amount = ethers.parseEther(score.toString());
-    document.getElementById('claimBtn').textContent = 'CLAIMING...';
-    const tx = await contract.claimReward(walletAddress, amount);
+    btn.textContent = 'CLAIMING...';
+    const tx = await contract.claimReward(amount);
+    btn.textContent = 'CONFIRMING...';
     await tx.wait();
-    document.getElementById('claimBtn').textContent = 'CLAIMED!';
-    addFloatingText(W/2, H/2, 'CLAIMED ON-CHAIN!', '#7B3FE4');
+    btn.textContent = 'CLAIMED!';
+    addFloatingText(W/2, H/2, score + ' BLTZ CLAIMED!', '#4ade80');
     addParticles(W/2, H/2, '#7B3FE4', 20);
-    setTimeout(() => { document.getElementById('claimBtn').textContent = 'CLAIM ON-CHAIN'; }, 3000);
+    addParticles(W/2, H/2, '#FFD700', 15);
+    setTimeout(() => { btn.textContent = 'CLAIM ON-CHAIN'; }, 3000);
   } catch (e) {
     console.error('Claim failed:', e);
-    document.getElementById('claimBtn').textContent = 'FAILED - RETRY';
-    setTimeout(() => { document.getElementById('claimBtn').textContent = 'CLAIM ON-CHAIN'; }, 2000);
+    const msg = e.reason || e.message || '';
+    if (msg.includes('Cooldown')) btn.textContent = 'COOLDOWN!';
+    else btn.textContent = 'FAILED';
+    setTimeout(() => { btn.textContent = 'CLAIM ON-CHAIN'; }, 2000);
   }
 }
 
-// ==================== CANVAS CLICK FOR TITLE ====================
-canvas.addEventListener('click', (e) => {
+// ==================== CANVAS CLICK ====================
+canvas.addEventListener('click', () => {
   if (gameState === 'title') startGame();
   if (gameState === 'gameover') startGame();
 });
