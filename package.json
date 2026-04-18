@@ -1,0 +1,12 @@
+{
+  "name": "monad-blitz",
+  "version": "1.0.0",
+  "description": "A cute 2D RPG mini-game on Monad testnet - collect coins, claim on-chain!",
+  "scripts": {
+    "dev": "npx serve public",
+    "build": "echo 'Static site - no build needed' && cp -r public dist",
+    "start": "npx serve public"
+  },
+  "keywords": ["monad", "blockchain", "game", "rpg", "web3"],
+  "license": "MIT"
+}
