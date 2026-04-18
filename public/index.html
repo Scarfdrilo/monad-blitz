@@ -6,6 +6,7 @@
   <title>Monad Blitz - Cute RPG</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@reown/appkit-cdn@1.6.8/dist/appkit.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -36,19 +37,16 @@
     .hud-text { color: #FFD700; font-size: 10px; text-shadow: 2px 2px 0 #000; }
     .hud-coins { display: flex; align-items: center; gap: 8px; }
     .hud-hearts { display: flex; gap: 4px; }
-    #walletBtn, #claimBtn {
+    #claimBtn {
       font-family: 'Press Start 2P', monospace;
       font-size: 7px; padding: 6px 10px;
-      border: 2px solid #7B3FE4; border-radius: 4px;
-      background: rgba(123,63,228,0.3); color: #fff;
-      cursor: pointer; transition: all 0.2s;
+      border: 2px solid #FFD700; border-radius: 4px;
+      background: rgba(255,215,0,0.2); color: #FFD700;
+      cursor: pointer; transition: all 0.2s; display: none;
     }
-    #walletBtn:hover, #claimBtn:hover {
-      background: rgba(123,63,228,0.6);
-      box-shadow: 0 0 10px rgba(123,63,228,0.5);
-    }
-    #claimBtn { border-color: #FFD700; background: rgba(255,215,0,0.2); color: #FFD700; display: none; }
-    #claimBtn:hover { background: rgba(255,215,0,0.4); }
+    #claimBtn:hover { background: rgba(255,215,0,0.4); box-shadow: 0 0 10px rgba(255,215,0,0.5); }
+    appkit-button { --w3m-z-index: 100; }
+    appkit-button::part(button) { font-size: 7px !important; }
     .star {
       position: fixed; width: 2px; height: 2px;
       background: #fff; border-radius: 50%;
@@ -67,7 +65,7 @@
       <div class="hud-hearts" id="hearts"></div>
       <div style="display:flex;gap:6px;align-items:center;">
         <button id="claimBtn" onclick="claimOnChain()">CLAIM ON-CHAIN</button>
-        <button id="walletBtn" onclick="connectWallet()">CONNECT WALLET</button>
+        <appkit-button size="sm"></appkit-button>
       </div>
     </div>
   </div>
@@ -657,36 +655,98 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-// ==================== WALLET ====================
-async function connectWallet() {
-  if (!window.ethereum) {
-    alert('Please install MetaMask to connect your wallet!');
-    return;
-  }
-  try {
-    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    walletAddress = accounts[0];
-    document.getElementById('walletBtn').textContent = walletAddress.slice(0,6) + '...' + walletAddress.slice(-4);
+// ==================== WALLET (Web3Modal / AppKit) ====================
+const monadTestnet = {
+  id: 'eip155:10143',
+  chainId: 10143,
+  chainNamespace: 'eip155',
+  name: 'Monad Testnet',
+  currency: 'MON',
+  explorerUrl: 'https://testnet.monadexplorer.com',
+  rpcUrl: 'https://testnet-rpc.monad.xyz'
+};
 
-    // Switch to Monad testnet
-    try {
-      await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: MONAD_TESTNET.chainId }] });
-    } catch (e) {
-      if (e.code === 4902) {
-        await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [MONAD_TESTNET] });
+let appkitModal = null;
+
+function initAppKit() {
+  if (!window.Appkit) return;
+  try {
+    appkitModal = window.Appkit.createAppKit({
+      adapters: [new window.Appkit.EthersAdapter()],
+      networks: [monadTestnet],
+      defaultNetwork: monadTestnet,
+      projectId: 'c41de8a7b636fd7ad1abaf6edd44a18e',
+      metadata: {
+        name: 'Monad Blitz',
+        description: 'Cute 2D RPG on Monad Testnet',
+        url: window.location.origin,
+        icons: []
+      },
+      themeMode: 'dark',
+      themeVariables: {
+        '--w3m-accent': '#7B3FE4',
+        '--w3m-border-radius-master': '2px',
+        '--w3m-font-family': '"Press Start 2P", monospace'
       }
+    });
+
+    // Listen for account changes
+    if (appkitModal) {
+      appkitModal.subscribeState(state => {
+        if (state.selectedNetworkId) {
+          checkWalletConnection();
+        }
+      });
+      appkitModal.subscribeAccount(account => {
+        if (account.address) {
+          walletAddress = account.address;
+          updateHUD();
+        } else {
+          walletAddress = null;
+          updateHUD();
+        }
+      });
     }
-    updateHUD();
-  } catch (e) {
-    console.error('Wallet connection failed:', e);
+  } catch(e) {
+    console.error('AppKit init error:', e);
   }
 }
+
+function checkWalletConnection() {
+  if (appkitModal) {
+    const addr = appkitModal.getAddress();
+    if (addr) {
+      walletAddress = addr;
+      updateHUD();
+    }
+  }
+}
+
+// Init when AppKit CDN is ready
+function waitForAppKit() {
+  if (window.Appkit) {
+    initAppKit();
+  } else {
+    setTimeout(waitForAppKit, 200);
+  }
+}
+waitForAppKit();
 
 async function claimOnChain() {
   if (!walletAddress || !CONTRACT_ADDRESS) return;
   try {
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
+    let provider, signer;
+    if (appkitModal) {
+      const walletProvider = appkitModal.getWalletProvider();
+      if (!walletProvider) { alert('Please connect your wallet first!'); return; }
+      provider = new ethers.BrowserProvider(walletProvider);
+      signer = await provider.getSigner();
+    } else if (window.ethereum) {
+      provider = new ethers.BrowserProvider(window.ethereum);
+      signer = await provider.getSigner();
+    } else {
+      alert('No wallet connected!'); return;
+    }
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
     const amount = ethers.parseEther(score.toString());
     document.getElementById('claimBtn').textContent = 'CLAIMING...';
