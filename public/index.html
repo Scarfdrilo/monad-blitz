@@ -107,23 +107,15 @@
     <div id="wcModal">
       <h3>Connect Wallet</h3>
       <div class="wc-chain"><div class="wc-chain-dot"></div> Monad Testnet</div>
-      <button class="wc-option" onclick="connectMetaMask()">
+      <button class="wc-option" id="mmBtn" onclick="connectMetaMask()">
         <div class="wc-icon" style="background: linear-gradient(135deg, #E8831D, #F5841F);">🦊</div>
         <span>MetaMask<br><small>Browser Extension</small></span>
       </button>
       <button class="wc-option" onclick="connectWC()">
         <div class="wc-icon" style="background: linear-gradient(135deg, #3B99FC, #2d7dd2);">🔗</div>
-        <span>WalletConnect<br><small>Scan with mobile</small></span>
-      </button>
-      <button class="wc-option" onclick="connectInjected()">
-        <div class="wc-icon" style="background: linear-gradient(135deg, #7B3FE4, #a855f7);">💜</div>
-        <span>Other Wallet<br><small>Any injected wallet</small></span>
+        <span>WalletConnect<br><small>Scan QR / Mobile wallet</small></span>
       </button>
       <div id="wcStatus"></div>
-      <div id="wcQR" style="display:none; text-align:center; margin-top:12px;">
-        <canvas id="qrCanvas" width="200" height="200" style="border-radius:8px; background:#fff; padding:8px;"></canvas>
-        <p style="color:#a78bfa; font-size:6px; margin-top:8px;">Scan with your mobile wallet</p>
-      </div>
       <button id="wcClose" onclick="closeWCModal()">CANCEL</button>
     </div>
   </div>
@@ -196,6 +188,20 @@ for (let i = 0; i < 50; i++) {
 }
 
 // ==================== WALLET MODAL ====================
+// Detect injected providers (MetaMask can take up to 1s to inject)
+function getProvider() {
+  // MetaMask injects window.ethereum, but sometimes as an array of providers
+  if (window.ethereum) {
+    // If multiple providers (e.g. MetaMask + Coinbase), find MetaMask
+    if (window.ethereum.providers?.length) {
+      return window.ethereum.providers.find(p => p.isMetaMask) || window.ethereum.providers[0];
+    }
+    return window.ethereum;
+  }
+  // Check other common injected wallets
+  return window.okxwallet || window.phantom?.ethereum || null;
+}
+
 function openWCModal() {
   if (walletAddress) {
     if (confirm('Disconnect wallet?')) {
@@ -207,18 +213,28 @@ function openWCModal() {
     }
     return;
   }
+  // Update MetaMask button state
+  const mmBtn = document.getElementById('mmBtn');
+  const provider = getProvider();
+  if (provider) {
+    mmBtn.querySelector('small').textContent = provider.isMetaMask ? 'Detected' : 'Extension found';
+    mmBtn.style.borderColor = '#4ade80';
+  } else {
+    mmBtn.querySelector('small').textContent = 'Not detected';
+    mmBtn.style.borderColor = 'rgba(123,63,228,0.3)';
+  }
   document.getElementById('wcOverlay').classList.add('open');
   document.getElementById('wcStatus').style.display = 'none';
-  document.getElementById('wcQR').style.display = 'none';
 }
 
 function closeWCModal() {
   document.getElementById('wcOverlay').classList.remove('open');
 }
 
-function showWCStatus(msg) {
+function showWCStatus(msg, isError) {
   const el = document.getElementById('wcStatus');
   el.textContent = msg;
+  el.style.color = isError ? '#ff4757' : '#a78bfa';
   el.style.display = 'block';
 }
 
@@ -228,6 +244,8 @@ async function switchToMonad(provider) {
   } catch (e) {
     if (e.code === 4902 || e.code === -32603) {
       await provider.request({ method: 'wallet_addEthereumChain', params: [MONAD_TESTNET] });
+    } else {
+      throw e;
     }
   }
 }
@@ -245,105 +263,85 @@ function onWalletConnected(address, provider) {
 }
 
 async function connectMetaMask() {
-  if (!window.ethereum) {
-    showWCStatus('MetaMask not found! Install it first.');
+  let provider = getProvider();
+  if (!provider) {
+    // MetaMask might not have injected yet, wait and retry
+    showWCStatus('Looking for MetaMask...');
+    await new Promise(r => setTimeout(r, 1500));
+    provider = getProvider();
+  }
+  if (!provider) {
+    showWCStatus('No wallet extension found! Install MetaMask from metamask.io', true);
     return;
   }
-  showWCStatus('Connecting to MetaMask...');
+  showWCStatus('Waiting for wallet approval...');
   try {
-    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    await switchToMonad(window.ethereum);
-    onWalletConnected(accounts[0], window.ethereum);
+    const accounts = await provider.request({ method: 'eth_requestAccounts' });
+    showWCStatus('Switching to Monad Testnet...');
+    await switchToMonad(provider);
+    onWalletConnected(accounts[0], provider);
   } catch (e) {
-    showWCStatus('Connection rejected: ' + (e.message || e).toString().slice(0, 50));
+    console.error('MetaMask error:', e);
+    if (e.code === 4001) {
+      showWCStatus('Connection rejected by user', true);
+    } else {
+      showWCStatus('Error: ' + (e.message || '').slice(0, 60), true);
+    }
   }
 }
 
 async function connectWC() {
-  showWCStatus('Initializing WalletConnect...');
+  showWCStatus('Loading WalletConnect...');
   try {
-    // Dynamic import of WalletConnect Sign Client
-    const { SignClient } = await import('https://unpkg.com/@walletconnect/sign-client@2.17.0/dist/index.es.js').catch(() => null) || {};
+    // Use WalletConnect EthereumProvider which has its own built-in modal
+    const module = await import('https://esm.sh/@walletconnect/ethereum-provider@2.17.3');
+    const EthereumProvider = module.default || module.EthereumProvider;
 
-    if (!SignClient) {
-      // Fallback: open WalletConnect deep link
-      showWCStatus('Opening WalletConnect...');
-      const wcUrl = `https://explorer.walletconnect.com/?projectId=${WC_PROJECT_ID}`;
-      window.open(wcUrl, '_blank');
-      showWCStatus('Use MetaMask or injected wallet instead');
-      return;
-    }
-
-    const client = await SignClient.init({
+    showWCStatus('Opening WalletConnect...');
+    const wcProvider = await EthereumProvider.init({
       projectId: WC_PROJECT_ID,
+      chains: [10143],
+      showQrModal: true,
       metadata: {
         name: 'Monad Blitz',
         description: 'Cute 2D RPG on Monad Testnet',
         url: window.location.origin,
         icons: []
-      }
-    });
-
-    const { uri, approval } = await client.connect({
-      requiredNamespaces: {
-        eip155: {
-          methods: ['eth_sendTransaction', 'personal_sign'],
-          chains: ['eip155:10143'],
-          events: ['accountsChanged', 'chainChanged']
+      },
+      qrModalOptions: {
+        themeMode: 'dark',
+        themeVariables: {
+          '--wcm-accent-color': '#7B3FE4',
+          '--wcm-background-color': '#1e1145'
         }
       }
     });
 
-    if (uri) {
-      // Show QR code
-      document.getElementById('wcQR').style.display = 'block';
-      drawQR(uri);
-      showWCStatus('Scan QR code with your wallet');
+    // This opens the WalletConnect QR modal
+    await wcProvider.connect();
+    const accounts = wcProvider.accounts;
+    if (accounts && accounts.length > 0) {
+      onWalletConnected(accounts[0], wcProvider);
+    } else {
+      showWCStatus('No accounts found', true);
     }
 
-    const session = await approval();
-    const accounts = session.namespaces.eip155.accounts;
-    const address = accounts[0].split(':')[2];
-    onWalletConnected(address, { isWC: true, client, session });
+    // Listen for disconnect
+    wcProvider.on('disconnect', () => {
+      walletAddress = null;
+      walletProvider = null;
+      document.getElementById('walletBtn').textContent = 'CONNECT';
+      document.getElementById('walletBtn').classList.remove('connected');
+      updateHUD();
+    });
   } catch (e) {
     console.error('WC error:', e);
-    showWCStatus('WalletConnect error. Try MetaMask instead.');
+    if (e.message?.includes('User rejected') || e.message?.includes('dismissed')) {
+      showWCStatus('Connection cancelled', true);
+    } else {
+      showWCStatus('WalletConnect failed. Try MetaMask.', true);
+    }
   }
-}
-
-async function connectInjected() {
-  const provider = window.ethereum || window.okxwallet || window.phantom?.ethereum || window.rabby;
-  if (!provider) {
-    showWCStatus('No wallet extension found!');
-    return;
-  }
-  showWCStatus('Connecting...');
-  try {
-    const accounts = await provider.request({ method: 'eth_requestAccounts' });
-    await switchToMonad(provider);
-    onWalletConnected(accounts[0], provider);
-  } catch (e) {
-    showWCStatus('Connection failed: ' + (e.message || e).toString().slice(0, 50));
-  }
-}
-
-// Simple QR code drawing (minimal implementation)
-function drawQR(text) {
-  const qrCanvas = document.getElementById('qrCanvas');
-  const qCtx = qrCanvas.getContext('2d');
-  qCtx.fillStyle = '#fff';
-  qCtx.fillRect(0, 0, 200, 200);
-  qCtx.fillStyle = '#1e1145';
-  qCtx.font = '9px "Press Start 2P"';
-  qCtx.textAlign = 'center';
-  qCtx.fillText('WalletConnect', 100, 80);
-  qCtx.fillText('QR Code', 100, 100);
-  qCtx.font = '7px sans-serif';
-  qCtx.fillText('Copy URI below', 100, 130);
-  // Copy URI to clipboard
-  navigator.clipboard.writeText(text).catch(() => {});
-  qCtx.fillStyle = '#7B3FE4';
-  qCtx.fillText('URI copied!', 100, 150);
 }
 
 // Close modal on overlay click
