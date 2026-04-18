@@ -712,40 +712,90 @@ function gameLoop() { frame++; update(); draw(); requestAnimationFrame(gameLoop)
 async function claimOnChain() {
   if (!walletAddress || !CONTRACT_ADDRESS) return;
   const btn = document.getElementById('claimBtn');
+  const origText = btn.textContent;
+
+  function showError(msg) {
+    btn.textContent = 'FAILED';
+    addFloatingText(W/2, H/2, msg, '#ff4757');
+    console.error('Claim error:', msg);
+    setTimeout(() => { btn.textContent = 'CLAIM ON-CHAIN'; }, 3000);
+  }
+
   try {
-    const provider = new ethers.BrowserProvider(walletProvider || window.ethereum);
+    btn.textContent = 'CONNECTING...';
+    const prov = walletProvider || window.ethereum;
+    if (!prov) { showError('No wallet provider!'); return; }
+
+    const provider = new ethers.BrowserProvider(prov);
     const signer = await provider.getSigner();
+
+    // Check if user has MON for gas
+    btn.textContent = 'CHECKING GAS...';
+    const balance = await provider.getBalance(walletAddress);
+    const balMON = parseFloat(ethers.formatEther(balance));
+    if (balMON < 0.001) {
+      showError('Need MON for gas! (' + balMON.toFixed(4) + ' MON)');
+      addFloatingText(W/2, H/2 + 20, 'Get MON from faucet', '#FFD700');
+      return;
+    }
+
+    // Check if on correct chain
+    btn.textContent = 'CHECKING CHAIN...';
+    const network = await provider.getNetwork();
+    if (Number(network.chainId) !== 10143) {
+      btn.textContent = 'SWITCHING CHAIN...';
+      await switchToMonad(prov);
+    }
+
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 
     // Check cooldown
+    btn.textContent = 'CHECKING COOLDOWN...';
     try {
-      const lastClaim = await contract.lastClaim(walletAddress);
+      const lastClaimTime = await contract.lastClaim(walletAddress);
       const cooldown = await contract.CLAIM_COOLDOWN();
       const now = BigInt(Math.floor(Date.now() / 1000));
-      if (lastClaim > 0n && now < lastClaim + cooldown) {
-        const wait = Number(lastClaim + cooldown - now);
-        btn.textContent = 'WAIT ' + wait + 's';
+      if (lastClaimTime > 0n && now < lastClaimTime + cooldown) {
+        const wait = Number(lastClaimTime + cooldown - now);
+        showError('Cooldown! Wait ' + wait + 's');
+        return;
+      }
+    } catch(e) {
+      console.warn('Cooldown check skipped:', e.message);
+    }
+
+    // Send claim transaction
+    const amount = ethers.parseEther(score.toString());
+    btn.textContent = 'SIGN IN WALLET...';
+    let tx;
+    try {
+      tx = await contract.claimReward(amount);
+    } catch (e) {
+      if (e.code === 'ACTION_REJECTED' || e.code === 4001) {
+        btn.textContent = 'REJECTED';
         setTimeout(() => { btn.textContent = 'CLAIM ON-CHAIN'; }, 2000);
         return;
       }
-    } catch(e) { /* proceed anyway */ }
+      throw e;
+    }
 
-    const amount = ethers.parseEther(score.toString());
-    btn.textContent = 'CLAIMING...';
-    const tx = await contract.claimReward(amount);
-    btn.textContent = 'CONFIRMING...';
-    await tx.wait();
-    btn.textContent = 'CLAIMED!';
-    addFloatingText(W/2, H/2, score + ' BLTZ CLAIMED!', '#4ade80');
-    addParticles(W/2, H/2, '#7B3FE4', 20);
-    addParticles(W/2, H/2, '#FFD700', 15);
-    setTimeout(() => { btn.textContent = 'CLAIM ON-CHAIN'; }, 3000);
+    btn.textContent = 'CONFIRMING TX...';
+    addFloatingText(W/2, H/2, 'Waiting for confirmation...', '#a78bfa');
+    const receipt = await tx.wait();
+
+    if (receipt.status === 1) {
+      btn.textContent = 'CLAIMED!';
+      addFloatingText(W/2, H/2, score + ' BLTZ CLAIMED!', '#4ade80');
+      addParticles(W/2, H/2, '#7B3FE4', 20);
+      addParticles(W/2, H/2, '#FFD700', 15);
+      setTimeout(() => { btn.textContent = 'CLAIM ON-CHAIN'; }, 4000);
+    } else {
+      showError('Transaction reverted!');
+    }
   } catch (e) {
-    console.error('Claim failed:', e);
-    const msg = e.reason || e.message || '';
-    if (msg.includes('Cooldown')) btn.textContent = 'COOLDOWN!';
-    else btn.textContent = 'FAILED';
-    setTimeout(() => { btn.textContent = 'CLAIM ON-CHAIN'; }, 2000);
+    console.error('Claim failed full error:', e);
+    const reason = e.reason || e.data?.message || e.shortMessage || e.message || 'Unknown error';
+    showError(reason.slice(0, 40));
   }
 }
 
